@@ -211,5 +211,13 @@
              android:multiprocess="false"
              android:label="@string/dictionary_provider_name">
         </provider>
+        <!-- Serves clipboard images to apps that accept them (Gboard-style image paste). -->
+        <provider android:name="androidx.core.content.FileProvider"
+             android:authorities="com.android.inputmethod.latin.clipimages"
+             android:grantUriPermissions="true"
+             android:exported="false">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
+                 android:resource="@xml/clip_file_paths"/>
+        </provider>
     </application>
 </manifest>

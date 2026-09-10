@@ -13,7 +13,7 @@
                 latin:keyWidth="10%p"
                 >
                 <include
-                    latin:keyboardLayout="@xml/rowkeys_symbols1" />
+                    latin:keyboardLayout="@xml/rowkeys_number_row" />
             </Row>
         </case>
     </switch>

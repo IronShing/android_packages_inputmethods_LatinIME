@@ -580,4 +580,26 @@ Tip: You can download and remove dictionaries by going to &lt;b>Languages&#160;&
          This resource is copied from packages/apps/Settings/res/values/strings.xml -->
     <!-- This resource is corresponding to msgid="5433275485499039199" -->
     <string name="user_dict_fast_scroll_alphabet">\u0020ABCDEFGHIJKLMNOPQRSTUVWXYZ</string>
+    <!-- Clipboard paste chip on the suggestion strip (e.g. a copied one-time code). %s = the copied text -->
+    <string name="clipboard_paste_chip">\uD83D\uDCCB  Paste: %s</string>
+    <!-- Title of the clipboard history popup -->
+    <string name="clipboard_history_title">Clipboard history</string>
+    <!-- Button to clear the clipboard history -->
+    <string name="clipboard_clear">Clear clipboard history</string>
+    <!-- Shown in the clipboard panel when nothing has been copied yet -->
+    <string name="clipboard_empty">Nothing copied yet. Copy text or an image and it will appear here.</string>
+    <!-- Paste chip label shown when the freshest clipboard entry is an image -->
+    <string name="clipboard_image_chip">\uD83D\uDCF7  Paste image</string>
+    <!-- Toast when the focused field will not accept a pasted image -->
+    <string name="clipboard_image_unsupported">This field doesn\u2019t accept images</string>
+    <!-- Toast shown when the mic key is tapped but no voice-input keyboard is enabled -->
+    <string name="voice_input_ime_missing">No voice typing keyboard is enabled. Install Google voice typing (Speech Services) and turn it on here.</string>
+    <!-- Shown in the clipboard panel when a copied image could not be read. [CHAR LIMIT=NONE] -->
+    <!-- Title of the setting listing the user's own email addresses offered as chips in email fields -->
+    <string name="email_addresses">Your email addresses</string>
+    <!-- Summary of the email addresses setting -->
+    <string name="email_addresses_summary">Suggested when you type in an email field, together with the addresses of the accounts on this phone</string>
+    <!-- Dialog text of the email addresses setting -->
+    <string name="email_addresses_dialog">One or more addresses, separated by spaces or commas</string>
+    <string name="clipboard_image_failed">Couldn\'t read the copied image: %1$s</string>
 </resources>
