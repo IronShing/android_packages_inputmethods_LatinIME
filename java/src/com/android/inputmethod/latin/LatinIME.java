@@ -154,6 +154,15 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
     private final DictionaryFacilitator mDictionaryFacilitator =
             DictionaryFacilitatorProvider.getDictionaryFacilitator(
                     false /* isNeededForSpellChecking */);
+    // Email-field address chips (see EmailSuggestions). mEmailChipToken is the text they were
+    // matched against; picking a chip replaces exactly that many characters before the cursor.
+    private EmailSuggestions mEmailSuggestions;
+    private String mEmailChipToken;
+    // The paste chip is offered when a field gets the keyboard and withdrawn at the first
+    // keystroke (Gboard behaviour); otherwise in fields without suggestions it would sit on the
+    // strip for the whole time the clip is fresh.
+    private boolean mClipChipArmed;
+
     final InputLogic mInputLogic = new InputLogic(this /* LatinIME */,
             this /* SuggestionStripViewAccessor */, mDictionaryFacilitator);
     // We expect to have only one decoder in almost all cases, hence the default capacity of 1.
@@ -166,6 +175,7 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
     private View mInputView;
     private InsetsUpdater mInsetsUpdater;
     private SuggestionStripView mSuggestionStripView;
+    private ClipboardHistoryManager mClipboardHistoryManager;
 
     private RichInputMethodManager mRichImm;
     @UsedForTesting final KeyboardSwitcher mKeyboardSwitcher;
@@ -616,6 +626,9 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
         super.onCreate();
 
         mHandler.onCreate();
+        mClipboardHistoryManager = new ClipboardHistoryManager(this);
+        mEmailSuggestions = new EmailSuggestions(this);
+        mClipboardHistoryManager.onCreate();
 
         // TODO: Resolve mutual dependencies of {@link #loadSettings()} and
         // {@link #resetDictionaryFacilitatorIfNecessary()}.
@@ -784,6 +797,9 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
         unregisterReceiver(mDictionaryPackInstallReceiver);
         unregisterReceiver(mDictionaryDumpBroadcastReceiver);
         mStatsUtilsManager.onDestroy(this /* context */);
+        if (mClipboardHistoryManager != null) {
+            mClipboardHistoryManager.onDestroy();
+        }
         super.onDestroy();
     }
 
@@ -881,6 +897,7 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
         mSuggestionStripView = (SuggestionStripView)view.findViewById(R.id.suggestion_strip_view);
         if (hasSuggestionStripView()) {
             mSuggestionStripView.setListener(this, view);
+            mSuggestionStripView.setClipboardHistoryManager(mClipboardHistoryManager);
         }
     }
 
@@ -898,6 +915,23 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
     public void onStartInputView(final EditorInfo editorInfo, final boolean restarting) {
         mHandler.onStartInputView(editorInfo, restarting);
         mStatsUtilsManager.onStartInputView();
+        mClipChipArmed = true;
+        // The keyboard is now focused, so we can read the clipboard: pick up anything (esp. an
+        // image) copied while no keyboard was showing. This is how the paste chip/panel sees it.
+        if (mClipboardHistoryManager != null) {
+            mClipboardHistoryManager.refresh();
+        }
+        // Email field: (re)load the address chips off the UI thread, then draw the strip.
+        if (editorInfo != null && new InputAttributes(editorInfo, false, getPackageName())
+                .mIsEmailField && mEmailSuggestions != null) {
+            final EmailSuggestions es = mEmailSuggestions;
+            com.android.inputmethod.latin.utils.ExecutorUtils
+                    .getBackgroundExecutor(com.android.inputmethod.latin.utils.ExecutorUtils.KEYBOARD)
+                    .execute(() -> {
+                        es.refresh();
+                        mHandler.post(this::setNeutralSuggestionStrip);
+                    });
+        }
     }
 
     @Override
@@ -1177,6 +1211,10 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
             mKeyboardSwitcher.requestUpdatingShiftState(getCurrentAutoCapsState(),
                     getCurrentRecapitalizeState());
         }
+        // Email chips follow the cursor (taps into the field, app-side edits), not just our keys.
+        if (isInputViewShown() && settingsValues.mInputAttributes.mIsEmailField) {
+            setNeutralSuggestionStrip();
+        }
     }
 
     /**
@@ -1412,6 +1450,38 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
                 null /* activity */, permission.READ_CONTACTS);
     }
 
+    // Called from {@link SuggestionStripView} to paste a clipboard entry (e.g. a copied OTP).
+    @Override
+    public void pasteClipboardText(final CharSequence text) {
+        if (text == null || text.length() == 0) {
+            return;
+        }
+        onTextInput(text.toString());
+    }
+
+    // The chip's x was tapped: redraw the strip in its normal state.
+    @Override
+    public void onClipboardChipDismissed() {
+        setNeutralSuggestionStrip();
+    }
+
+    // Called from {@link SuggestionStripView} to paste a copied image into a field that accepts
+    // images (Gboard-style). Falls back to a toast when the field is text-only.
+    @Override
+    public void pasteClipboardImage(final ClipboardHistoryManager.Entry entry) {
+        if (entry == null || !entry.isImage()) {
+            return;
+        }
+        final android.view.inputmethod.EditorInfo editorInfo = getCurrentInputEditorInfo();
+        final android.view.inputmethod.InputConnection ic = getCurrentInputConnection();
+        final boolean committed = ClipboardImageCommit.commit(
+                this, ic, editorInfo, entry.imagePath, entry.mimeType);
+        if (!committed) {
+            android.widget.Toast.makeText(this, R.string.clipboard_image_unsupported,
+                    android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
     @Override
     public void onRequestPermissionsResult(boolean allGranted) {
         ImportantNoticeUtils.updateContactsNoticeShown(this /* context */);
@@ -1551,6 +1621,9 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
     @Override
     public void onCodeInput(final int codePoint, final int x, final int y,
             final boolean isKeyRepeat) {
+        if (codePoint >= 0 || codePoint == Constants.CODE_DELETE) {
+            mClipChipArmed = false;
+        }
         // TODO: this processing does not belong inside LatinIME, the caller should be doing this.
         final MainKeyboardView mainKeyboardView = mKeyboardSwitcher.getMainKeyboardView();
         // x and y include some padding, but everything down the line (especially native
@@ -1600,6 +1673,7 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
     // Called from PointerTracker through the KeyboardActionListener interface
     @Override
     public void onTextInput(final String rawText) {
+        mClipChipArmed = false;
         // TODO: have the keyboard pass the correct key code when we need it.
         final Event event = Event.createSoftwareTextEvent(rawText, Constants.CODE_OUTPUT_TEXT);
         final InputTransaction completeInputTransaction =
@@ -1611,6 +1685,7 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
 
     @Override
     public void onStartBatchInput() {
+        mClipChipArmed = false;
         mInputLogic.onStartBatchInput(mSettings.getCurrent(), mKeyboardSwitcher, mHandler);
         mGestureConsumer.onGestureStarted(
                 mRichImm.getCurrentSubtypeLocale(),
@@ -1698,6 +1773,45 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
         final boolean shouldShowSuggestionsStrip = shouldShowSuggestionsStripUnlessPassword
                 && !currentSettingsValues.mInputAttributes.mIsPasswordField;
         mSuggestionStripView.updateVisibility(shouldShowSuggestionsStrip, isFullscreenMode());
+
+        final boolean neutralStrip = suggestedWords.isEmpty()
+                || suggestedWords.isPunctuationSuggestions();
+        // Email field: dictionary suggestions are off here, so the strip is ours -- offer the
+        // user's own addresses that start with what is typed (Gboard-style).
+        mEmailChipToken = null;
+        if (currentSettingsValues.mInputAttributes.mIsEmailField && neutralStrip
+                && mEmailSuggestions != null && !isFullscreenMode()) {
+            final String token = EmailSuggestions.tokenBeforeCursor(
+                    mInputLogic.mConnection.getTextBeforeCursor(96, 0));
+            final SuggestedWords chips = mEmailSuggestions.match(token);
+            if (chips != null) {
+                mEmailChipToken = token;
+                if (!shouldShowSuggestionsStrip) {
+                    mSuggestionStripView.updateVisibility(true, isFullscreenMode());
+                }
+                mSuggestionStripView.setSuggestions(chips,
+                        mRichImm.getCurrentSubtype().isRtlSubtype());
+                return;
+            }
+        }
+
+        // Clipboard paste chip (e.g. a freshly copied one-time code): show it when the user
+        // is not mid-word, even in password/numeric fields where the normal strip is hidden.
+        final ClipboardHistoryManager.Entry clip = (mClipboardHistoryManager == null)
+                ? null : mClipboardHistoryManager.suggestionEntry();
+        if (clip != null && !clip.isImage() && mClipboardHistoryManager.alreadyInField(
+                clip, mInputLogic.mConnection.getTextBeforeCursor(
+                        ClipboardHistoryManager.MATCH_TAIL_CHARS + 8, 0))) {
+            // Pasted through the app's own menu (or already typed): stop offering it.
+            mClipboardHistoryManager.consumeSuggestion();
+        } else if (clip != null && mClipChipArmed && neutralStrip && !isFullscreenMode()) {
+            if (!shouldShowSuggestionsStrip) {
+                mSuggestionStripView.updateVisibility(true, isFullscreenMode());
+            }
+            mSuggestionStripView.showClipboardSuggestion(clip);
+            return;
+        }
+
         if (!shouldShowSuggestionsStrip) {
             return;
         }
@@ -1755,6 +1869,21 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
     // interface
     @Override
     public void pickSuggestionManually(final SuggestedWordInfo suggestionInfo) {
+        if (mEmailChipToken != null
+                && mSettings.getCurrent().mInputAttributes.mIsEmailField) {
+            // An address chip: replace the partial token with the whole address. No composing
+            // state exists in email fields, so this is a plain edit.
+            final String token = mEmailChipToken;
+            mEmailChipToken = null;
+            mInputLogic.mConnection.beginBatchEdit();
+            if (token.length() > 0) {
+                mInputLogic.mConnection.deleteTextBeforeCursor(token.length());
+            }
+            mInputLogic.mConnection.commitText(suggestionInfo.mWord, 1);
+            mInputLogic.mConnection.endBatchEdit();
+            setNeutralSuggestionStrip();
+            return;
+        }
         final InputTransaction completeInputTransaction = mInputLogic.onPickSuggestionManually(
                 mSettings.getCurrent(), suggestionInfo,
                 mKeyboardSwitcher.getKeyboardShiftMode(),

@@ -20,6 +20,16 @@
 
 <merge
     xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Clipboard key: always available, opens the clipboard history panel (text + images). -->
+    <ImageButton
+        android:id="@+id/suggestions_strip_clipboard_key"
+        android:layout_width="@dimen/config_suggestions_strip_edge_key_width"
+        android:layout_height="fill_parent"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentLeft="true"
+        android:layout_centerVertical="true"
+        android:contentDescription="@string/clipboard_history_title"
+        style="?attr/suggestionWordStyle" />
     <!-- Provide audio and haptic feedback by ourselves based on the keyboard settings.
          We just need to ignore the system's audio and haptic feedback settings. -->
     <LinearLayout
@@ -27,7 +37,8 @@
         android:orientation="horizontal"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginLeft="@dimen/config_suggestions_strip_horizontal_margin"
+        android:layout_toEndOf="@id/suggestions_strip_clipboard_key"
+        android:layout_toRightOf="@id/suggestions_strip_clipboard_key"
         android:layout_marginRight="@dimen/config_suggestions_strip_horizontal_margin"
         android:hapticFeedbackEnabled="false"
         android:soundEffectsEnabled="false" />
@@ -40,16 +51,31 @@
         android:orientation="horizontal"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginLeft="@dimen/config_suggestions_strip_horizontal_margin"
+        android:layout_toEndOf="@id/suggestions_strip_clipboard_key"
+        android:layout_toRightOf="@id/suggestions_strip_clipboard_key"
         android:layout_marginRight="@dimen/config_suggestions_strip_horizontal_margin"
         android:hapticFeedbackEnabled="false"
         android:soundEffectsEnabled="false" >
         <TextView
             android:id="@+id/important_notice_title"
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
+            android:layout_weight="1"
             android:layout_height="match_parent"
             android:padding="6sp"
             android:textSize="16sp"
+            android:maxLines="1"
+            style="?attr/suggestionWordStyle" />
+        <!-- Clipboard paste chip only: dismiss without pasting. -->
+        <TextView
+            android:id="@+id/important_notice_dismiss"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:paddingLeft="14sp"
+            android:paddingRight="14sp"
+            android:gravity="center"
+            android:textSize="18sp"
+            android:text="\u2715"
+            android:visibility="gone"
             style="?attr/suggestionWordStyle" />
     </LinearLayout>
     <ImageButton

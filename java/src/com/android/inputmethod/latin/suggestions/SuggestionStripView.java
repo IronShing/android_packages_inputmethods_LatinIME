@@ -51,6 +51,7 @@ import com.android.inputmethod.latin.define.DebugFlags;
 import com.android.inputmethod.latin.settings.Settings;
 import com.android.inputmethod.latin.settings.SettingsValues;
 import com.android.inputmethod.latin.suggestions.MoreSuggestionsView.MoreSuggestionsListener;
+import com.android.inputmethod.latin.ClipboardHistoryManager;
 import com.android.inputmethod.latin.utils.ImportantNoticeUtils;
 
 import java.util.ArrayList;
@@ -59,6 +60,9 @@ public final class SuggestionStripView extends RelativeLayout implements OnClick
         OnLongClickListener {
     public interface Listener {
         public void showImportantNoticeContents();
+        public void pasteClipboardText(CharSequence text);
+        public void pasteClipboardImage(ClipboardHistoryManager.Entry entry);
+        public void onClipboardChipDismissed();
         public void pickSuggestionManually(SuggestedWordInfo word);
         public void onCodeInput(int primaryCode, int x, int y, boolean isKeyRepeat);
     }
@@ -68,6 +72,7 @@ public final class SuggestionStripView extends RelativeLayout implements OnClick
 
     private final ViewGroup mSuggestionsStrip;
     private final ImageButton mVoiceKey;
+    private final ImageButton mClipboardKey;
     private final View mImportantNoticeStrip;
     MainKeyboardView mMainKeyboardView;
 
@@ -82,6 +87,14 @@ public final class SuggestionStripView extends RelativeLayout implements OnClick
     Listener mListener;
     private SuggestedWords mSuggestedWords = SuggestedWords.getEmptyInstance();
     private int mStartIndexOfMoreSuggestions;
+
+    private ClipboardHistoryManager mClipboardHistory;
+    private boolean mShowingClipboardChip;
+    private View mChipDismiss;
+    /** Longest clip preview in the chip; anything more is squashed into an unreadable line. */
+    private static final int CHIP_PREVIEW_CHARS = 60;
+    private ClipboardHistoryManager.Entry mClipboardChipEntry;
+    private ClipboardHistoryPopup mClipboardPopup;
 
     private final SuggestionStripLayoutHelper mLayoutHelper;
     private final StripVisibilityGroup mStripVisibilityGroup;
@@ -140,7 +153,10 @@ public final class SuggestionStripView extends RelativeLayout implements OnClick
 
         mSuggestionsStrip = (ViewGroup)findViewById(R.id.suggestions_strip);
         mVoiceKey = (ImageButton)findViewById(R.id.suggestions_strip_voice_key);
+        mClipboardKey = (ImageButton)findViewById(R.id.suggestions_strip_clipboard_key);
         mImportantNoticeStrip = findViewById(R.id.important_notice_strip);
+        mChipDismiss = findViewById(R.id.important_notice_dismiss);
+        mChipDismiss.setOnClickListener(v -> dismissClipboardChip());
         mStripVisibilityGroup = new StripVisibilityGroup(this, mSuggestionsStrip,
                 mImportantNoticeStrip);
 
@@ -175,9 +191,13 @@ public final class SuggestionStripView extends RelativeLayout implements OnClick
         final TypedArray keyboardAttr = context.obtainStyledAttributes(attrs,
                 R.styleable.Keyboard, defStyle, R.style.SuggestionStripView);
         final Drawable iconVoice = keyboardAttr.getDrawable(R.styleable.Keyboard_iconShortcutKey);
+        final Drawable iconClipboard =
+                keyboardAttr.getDrawable(R.styleable.Keyboard_iconClipboardPasteKey);
         keyboardAttr.recycle();
         mVoiceKey.setImageDrawable(iconVoice);
         mVoiceKey.setOnClickListener(this);
+        mClipboardKey.setImageDrawable(iconClipboard);
+        mClipboardKey.setOnClickListener(this);
     }
 
     /**
@@ -228,13 +248,120 @@ public final class SuggestionStripView extends RelativeLayout implements OnClick
         if (isShowingMoreSuggestionPanel()) {
             dismissMoreSuggestionsPanel();
         }
+        mShowingClipboardChip = false;
+        mChipDismiss.setVisibility(GONE);
         mLayoutHelper.layoutImportantNotice(mImportantNoticeStrip, importantNoticeTitle);
         mStripVisibilityGroup.showImportantNoticeStrip();
         mImportantNoticeStrip.setOnClickListener(this);
         return true;
     }
 
+    public void setClipboardHistoryManager(final ClipboardHistoryManager manager) {
+        mClipboardHistory = manager;
+    }
+
+    /** Show the freshest clipboard entry (a copied OTP, text, or an image) as a paste chip. */
+    public void showClipboardSuggestion(final ClipboardHistoryManager.Entry entry) {
+        if (entry == null) {
+            return;
+        }
+        if (getWidth() <= 0) {
+            // First show of the keyboard: not laid out yet. Without this the chip only turned
+            // up at the first keystroke, i.e. exactly when it should be going away.
+            addOnLayoutChangeListener(new OnLayoutChangeListener() {
+                @Override
+                public void onLayoutChange(final View v, final int l, final int t, final int r,
+                        final int b, final int ol, final int ot, final int or, final int ob) {
+                    removeOnLayoutChangeListener(this);
+                    if (r - l > 0 && !mShowingClipboardChip) {
+                        showClipboardSuggestion(entry);
+                    }
+                }
+            });
+            return;
+        }
+        if (isShowingMoreSuggestionPanel()) {
+            dismissMoreSuggestionsPanel();
+        }
+        final String label;
+        if (entry.isImage()) {
+            label = getContext().getString(R.string.clipboard_image_chip);
+        } else {
+            if (TextUtils.isEmpty(entry.text)) {
+                return;
+            }
+            String oneLine = entry.text.toString().replaceAll("\\s+", " ").trim();
+            if (oneLine.length() > CHIP_PREVIEW_CHARS) {
+                oneLine = oneLine.substring(0, CHIP_PREVIEW_CHARS) + "\u2026";
+            }
+            label = getContext().getString(R.string.clipboard_paste_chip, oneLine);
+        }
+        mShowingClipboardChip = true;
+        mClipboardChipEntry = entry;
+        mChipDismiss.setVisibility(VISIBLE);
+        mLayoutHelper.layoutImportantNotice(mImportantNoticeStrip, label);
+        mStripVisibilityGroup.showImportantNoticeStrip();
+        // The text scale is computed from the title's current width, which is stale until the
+        // x button and the strip itself have been laid out: fit it again after that pass.
+        mImportantNoticeStrip.post(() -> {
+            if (mShowingClipboardChip && mClipboardChipEntry == entry) {
+                mLayoutHelper.layoutImportantNotice(mImportantNoticeStrip, label);
+            }
+        });
+        mImportantNoticeStrip.setOnClickListener(this);
+        mImportantNoticeStrip.setOnLongClickListener(this);
+    }
+
+    private boolean showClipboardHistoryPopup() {
+        if (mClipboardHistory == null) {
+            return false;
+        }
+        if (mClipboardPopup == null) {
+            mClipboardPopup = new ClipboardHistoryPopup(this, mClipboardHistory,
+                    new ClipboardHistoryPopup.OnPaste() {
+                        @Override public void paste(final ClipboardHistoryManager.Entry entry) {
+                            pasteAndClearChip(entry);
+                        }
+                    });
+        }
+        return mClipboardPopup.show();
+    }
+
+    /** The x on the chip: this clip is handled, never offer it again. */
+    private void dismissClipboardChip() {
+        AudioAndHapticFeedbackManager.getInstance().performHapticAndAudioFeedback(
+                Constants.CODE_UNSPECIFIED, this);
+        mShowingClipboardChip = false;
+        mChipDismiss.setVisibility(GONE);
+        if (mClipboardHistory != null) {
+            mClipboardHistory.consumeSuggestion();
+        }
+        mStripVisibilityGroup.showSuggestionsStrip();
+        if (mListener != null) {
+            mListener.onClipboardChipDismissed();
+        }
+    }
+
+    private void pasteAndClearChip(final ClipboardHistoryManager.Entry entry) {
+        mShowingClipboardChip = false;
+        mChipDismiss.setVisibility(GONE);
+        if (mClipboardHistory != null) {
+            mClipboardHistory.consumeSuggestion();
+        }
+        mStripVisibilityGroup.showSuggestionsStrip();
+        if (entry == null || mListener == null) {
+            return;
+        }
+        if (entry.isImage()) {
+            mListener.pasteClipboardImage(entry);
+        } else if (!TextUtils.isEmpty(entry.text)) {
+            mListener.pasteClipboardText(entry.text);
+        }
+    }
+
     public void clear() {
+        mShowingClipboardChip = false;
+        mChipDismiss.setVisibility(GONE);
         mSuggestionsStrip.removeAllViews();
         removeAllDebugInfoViews();
         mStripVisibilityGroup.showSuggestionsStrip();
@@ -294,6 +421,9 @@ public final class SuggestionStripView extends RelativeLayout implements OnClick
     public boolean onLongClick(final View view) {
         AudioAndHapticFeedbackManager.getInstance().performHapticAndAudioFeedback(
                 Constants.NOT_A_CODE, this);
+        if (view == mImportantNoticeStrip && mShowingClipboardChip) {
+            return showClipboardHistoryPopup();
+        }
         return showMoreSuggestions();
     }
 
@@ -450,7 +580,15 @@ public final class SuggestionStripView extends RelativeLayout implements OnClick
         AudioAndHapticFeedbackManager.getInstance().performHapticAndAudioFeedback(
                 Constants.CODE_UNSPECIFIED, this);
         if (view == mImportantNoticeStrip) {
-            mListener.showImportantNoticeContents();
+            if (mShowingClipboardChip) {
+                pasteAndClearChip(mClipboardChipEntry);
+            } else {
+                mListener.showImportantNoticeContents();
+            }
+            return;
+        }
+        if (view == mClipboardKey) {
+            showClipboardHistoryPopup();
             return;
         }
         if (view == mVoiceKey) {

@@ -40,6 +40,8 @@ public final class InputAttributes {
     final public boolean mInputTypeNoAutoCorrect;
     final public boolean mIsPasswordField;
     final public boolean mShouldShowSuggestions;
+    /** An email-address field: dictionary suggestions are off, our own address chips are on. */
+    final public boolean mIsEmailField;
     final public boolean mApplicationSpecifiedCompletionOn;
     final public boolean mShouldInsertSpacesAutomatically;
     final public boolean mShouldShowVoiceInputKey;
@@ -81,6 +83,7 @@ public final class InputAttributes {
                         + " imeOptions=0x%08x", inputType, editorInfo.imeOptions));
             }
             mShouldShowSuggestions = false;
+            mIsEmailField = false;
             mInputTypeNoAutoCorrect = false;
             mApplicationSpecifiedCompletionOn = false;
             mShouldInsertSpacesAutomatically = false;
@@ -110,6 +113,7 @@ public final class InputAttributes {
                 || flagNoSuggestions
                 || flagAutoComplete;
         mShouldShowSuggestions = !shouldSuppressSuggestions;
+        mIsEmailField = InputTypeUtils.isEmailVariation(variation) && !mIsPasswordField;
 
         mShouldInsertSpacesAutomatically = InputTypeUtils.isAutoSpaceFriendlyType(inputType);
 
