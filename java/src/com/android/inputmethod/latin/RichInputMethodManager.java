@@ -577,6 +577,18 @@ public class RichInputMethodManager {
 
     public void switchToShortcutIme(final InputMethodService context) {
         if (mShortcutInputMethodInfo == null) {
+            // No voice-input IME is enabled (e.g. Google voice typing installed from Play is
+            // never auto-enabled). Tell the user and take them to the enable screen instead of
+            // silently ignoring the mic key.
+            android.widget.Toast.makeText(context,
+                    R.string.voice_input_ime_missing, android.widget.Toast.LENGTH_LONG).show();
+            try {
+                final android.content.Intent intent = new android.content.Intent(
+                        android.provider.Settings.ACTION_INPUT_METHOD_SETTINGS);
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+            } catch (android.content.ActivityNotFoundException ignored) {
+            }
             return;
         }
 
