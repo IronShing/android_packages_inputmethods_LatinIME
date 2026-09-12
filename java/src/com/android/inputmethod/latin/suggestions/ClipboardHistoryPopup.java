@@ -3,6 +3,7 @@
  * A small popup listing recent clipboard entries; tap one to paste. Shown on long-press of the
  * clipboard paste chip. Uses the suggestion strip's window token so it is valid inside the IME.
  * Image entries are shown as downscaled thumbnails and pasted via the Commit Content API.
+ * Entries are laid out in a 4-column grid (each cell 1/4 width), newest first.
  */
 package com.android.inputmethod.latin.suggestions;
 
@@ -28,6 +29,7 @@ import com.android.inputmethod.latin.R;
 import java.util.List;
 
 final class ClipboardHistoryPopup {
+    private static final int COLS = 4;   // clipboard entries per grid row
     interface OnPaste { void paste(ClipboardHistoryManager.Entry entry); }
 
     private final View mAnchor;
@@ -70,9 +72,32 @@ final class ClipboardHistoryPopup {
             err.setPadding(dp(ctx, 6), dp(ctx, 6), dp(ctx, 6), dp(ctx, 6));
             col.addView(err);
         }
+        LinearLayout gridRow = null;
+        int colIdx = 0;
         for (final ClipboardHistoryManager.Entry e : history) {
-            final View row = e.isImage() ? imageRow(ctx, e) : textRow(ctx, e);
-            if (row != null) { col.addView(row); rows++; }
+            final View content = e.isImage() ? imageContent(ctx, e) : textContent(ctx, e);
+            if (content == null) continue;
+            if (colIdx == 0) {
+                gridRow = new LinearLayout(ctx);
+                gridRow.setOrientation(LinearLayout.HORIZONTAL);
+                gridRow.setWeightSum(COLS);   // keeps each cell 1/4 width even on a partial row
+                col.addView(gridRow);
+            }
+            final int gap = dp(ctx, 3);
+            final LinearLayout.LayoutParams clp =
+                    new LinearLayout.LayoutParams(0, dp(ctx, 84), 1f);
+            clp.setMargins(gap, gap, gap, gap);
+            final LinearLayout cell = new LinearLayout(ctx);
+            cell.setLayoutParams(clp);
+            cell.setGravity(Gravity.CENTER);
+            cell.setBackgroundColor(0xFF303134);
+            cell.setPadding(dp(ctx, 4), dp(ctx, 4), dp(ctx, 4), dp(ctx, 4));
+            cell.setClickable(true);
+            cell.setOnClickListener(v -> { dismiss(); mOnPaste.paste(e); });
+            cell.addView(content);
+            gridRow.addView(cell);
+            rows++;
+            colIdx = (colIdx + 1) % COLS;
         }
         if (rows == 0) {
             final TextView empty = new TextView(ctx);
@@ -122,23 +147,23 @@ final class ClipboardHistoryPopup {
         return true;
     }
 
-    private View textRow(final Context ctx, final ClipboardHistoryManager.Entry e) {
+    private View textContent(final Context ctx, final ClipboardHistoryManager.Entry e) {
         final String oneLine = e.text.toString().replaceAll("\\s+", " ").trim();
         if (TextUtils.isEmpty(oneLine)) return null;
-        final TextView row = new TextView(ctx);
-        row.setText(oneLine.length() > 80 ? oneLine.substring(0, 80) + "…" : oneLine);
-        row.setTextColor(Color.WHITE);
-        row.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        row.setMaxLines(2);
-        row.setPadding(dp(ctx, 6), dp(ctx, 10), dp(ctx, 6), dp(ctx, 10));
-        row.setClickable(true);
-        row.setOnClickListener(v -> { dismiss(); mOnPaste.paste(e); });
-        return row;
+        final TextView tv = new TextView(ctx);
+        tv.setText(oneLine.length() > 60 ? oneLine.substring(0, 60) + "…" : oneLine);
+        tv.setTextColor(Color.WHITE);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);   // smaller: cells are ~1/4 width
+        tv.setMaxLines(4);
+        tv.setEllipsize(TextUtils.TruncateAt.END);
+        tv.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return tv;
     }
 
-    private View imageRow(final Context ctx, final ClipboardHistoryManager.Entry e) {
+    private View imageContent(final Context ctx, final ClipboardHistoryManager.Entry e) {
         final ImageView iv = new ImageView(ctx);
-        final int maxH = dp(ctx, 96);
+        final int maxH = dp(ctx, 72);
         try {
             final BitmapFactory.Options bounds = new BitmapFactory.Options();
             bounds.inJustDecodeBounds = true;
@@ -154,14 +179,9 @@ final class ClipboardHistoryPopup {
         if (iv.getDrawable() == null) return null;
         iv.setAdjustViewBounds(true);
         iv.setMaxHeight(maxH);
-        iv.setScaleType(ImageView.ScaleType.FIT_START);
-        final int m = dp(ctx, 6);
-        final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.setMargins(m, dp(ctx, 8), m, dp(ctx, 8));
-        iv.setLayoutParams(lp);
-        iv.setClickable(true);
-        iv.setOnClickListener(v -> { dismiss(); mOnPaste.paste(e); });
+        iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        iv.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return iv;
     }
 
