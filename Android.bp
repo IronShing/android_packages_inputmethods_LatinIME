@@ -53,4 +53,8 @@ filegroup {
         "tests/src/com/android/inputmethod/latin/utils/ByteArrayDictBuffer.java",
         "tests/src/com/android/inputmethod/latin/makedict/**/*.java",
     ],
+    exclude_srcs: [
+        // bit-rotted unit test co-located with the makedict impl; not needed to build the tool
+        "tests/src/com/android/inputmethod/latin/makedict/BinaryDictDecoderEncoderTests.java",
+    ],
 }
