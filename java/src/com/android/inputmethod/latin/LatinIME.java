@@ -158,10 +158,6 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
     // matched against; picking a chip replaces exactly that many characters before the cursor.
     private EmailSuggestions mEmailSuggestions;
     private String mEmailChipToken;
-    // The paste chip is offered when a field gets the keyboard and withdrawn at the first
-    // keystroke (Gboard behaviour); otherwise in fields without suggestions it would sit on the
-    // strip for the whole time the clip is fresh.
-    private boolean mClipChipArmed;
 
     final InputLogic mInputLogic = new InputLogic(this /* LatinIME */,
             this /* SuggestionStripViewAccessor */, mDictionaryFacilitator);
@@ -915,7 +911,6 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
     public void onStartInputView(final EditorInfo editorInfo, final boolean restarting) {
         mHandler.onStartInputView(editorInfo, restarting);
         mStatsUtilsManager.onStartInputView();
-        mClipChipArmed = true;
         // The keyboard is now focused, so we can read the clipboard: pick up anything (esp. an
         // image) copied while no keyboard was showing. This is how the paste chip/panel sees it.
         if (mClipboardHistoryManager != null) {
@@ -1621,9 +1616,6 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
     @Override
     public void onCodeInput(final int codePoint, final int x, final int y,
             final boolean isKeyRepeat) {
-        if (codePoint >= 0 || codePoint == Constants.CODE_DELETE) {
-            mClipChipArmed = false;
-        }
         // TODO: this processing does not belong inside LatinIME, the caller should be doing this.
         final MainKeyboardView mainKeyboardView = mKeyboardSwitcher.getMainKeyboardView();
         // x and y include some padding, but everything down the line (especially native
@@ -1673,7 +1665,6 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
     // Called from PointerTracker through the KeyboardActionListener interface
     @Override
     public void onTextInput(final String rawText) {
-        mClipChipArmed = false;
         // TODO: have the keyboard pass the correct key code when we need it.
         final Event event = Event.createSoftwareTextEvent(rawText, Constants.CODE_OUTPUT_TEXT);
         final InputTransaction completeInputTransaction =
@@ -1685,7 +1676,6 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
 
     @Override
     public void onStartBatchInput() {
-        mClipChipArmed = false;
         mInputLogic.onStartBatchInput(mSettings.getCurrent(), mKeyboardSwitcher, mHandler);
         mGestureConsumer.onGestureStarted(
                 mRichImm.getCurrentSubtypeLocale(),
@@ -1795,8 +1785,11 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
             }
         }
 
-        // Clipboard paste chip (e.g. a freshly copied one-time code): show it when the user
-        // is not mid-word, even in password/numeric fields where the normal strip is hidden.
+        // Clipboard paste chip (e.g. a copied one-time code): shown whenever the user is not
+        // mid-word, even in password/numeric fields where the normal strip is hidden. It stays
+        // until the clip is pasted, dismissed with the x, or replaced by a newer clip -- the
+        // Gboard "withdraw at the first keystroke" rule made it vanish exactly when the user
+        // had tabbed to the field it was meant for.
         final ClipboardHistoryManager.Entry clip = (mClipboardHistoryManager == null)
                 ? null : mClipboardHistoryManager.suggestionEntry();
         if (clip != null && !clip.isImage() && mClipboardHistoryManager.alreadyInField(
@@ -1804,7 +1797,7 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
                         ClipboardHistoryManager.MATCH_TAIL_CHARS + 8, 0))) {
             // Pasted through the app's own menu (or already typed): stop offering it.
             mClipboardHistoryManager.consumeSuggestion();
-        } else if (clip != null && mClipChipArmed && neutralStrip && !isFullscreenMode()) {
+        } else if (clip != null && neutralStrip && !isFullscreenMode()) {
             if (!shouldShowSuggestionsStrip) {
                 mSuggestionStripView.updateVisibility(true, isFullscreenMode());
             }
