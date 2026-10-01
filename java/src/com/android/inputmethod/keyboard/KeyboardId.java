@@ -25,6 +25,7 @@ import android.view.inputmethod.EditorInfo;
 import com.android.inputmethod.compat.EditorInfoCompatUtils;
 import com.android.inputmethod.latin.RichInputMethodSubtype;
 import com.android.inputmethod.latin.utils.InputTypeUtils;
+import com.android.inputmethod.latin.utils.ScriptUtils;
 
 import java.util.Arrays;
 import java.util.Locale;
@@ -99,8 +100,8 @@ public final class KeyboardId {
                 (params.mNumberRowPasswordEnabled && params.mIsPasswordField);
         mLanguageSwitchKeyEnabled = params.mLanguageSwitchKeyEnabled;
         mEmojiKeyEnabled = params.mEmojiKeyEnabled;
-        mCustomActionLabel = (mEditorInfo.actionLabel != null)
-                ? mEditorInfo.actionLabel.toString() : null;
+        mCustomActionLabel = usableCustomActionLabel(mEditorInfo.actionLabel,
+                mSubtype.getLocale());
         mHasShortcutKey = params.mVoiceInputKeyEnabled;
         mIsSplitLayout = params.mIsSplitLayoutEnabled;
 
@@ -180,7 +181,36 @@ public final class KeyboardId {
     }
 
     public int imeAction() {
-        return InputTypeUtils.getImeOptionsActionIdFromEditorInfo(mEditorInfo);
+        final int action = InputTypeUtils.getImeOptionsActionIdFromEditorInfo(mEditorInfo);
+        if (action == InputTypeUtils.IME_ACTION_CUSTOM_LABEL && mCustomActionLabel == null) {
+            // The app's label was rejected (see usableCustomActionLabel): draw the key for the
+            // imeOptions action instead. The enter key still performs the app's actionId.
+            return mEditorInfo.imeOptions & EditorInfo.IME_MASK_ACTION;
+        }
+        return action;
+    }
+
+    /**
+     * An app-supplied action label is shown only when its letters belong to the keyboard's
+     * script. Apps localised for one market hard-code their label (Keeta sets "搜索" on its
+     * search field) and it then lands verbatim on an English layout; fall back to the standard
+     * action key in that case.
+     */
+    private static String usableCustomActionLabel(final CharSequence actionLabel,
+            final Locale locale) {
+        if (actionLabel == null) {
+            return null;
+        }
+        final String label = actionLabel.toString();
+        final int script = ScriptUtils.getScriptFromSpellCheckerLocale(locale);
+        for (int i = 0; i < label.length(); ) {
+            final int cp = label.codePointAt(i);
+            if (Character.isLetter(cp) && !ScriptUtils.isLetterPartOfScript(cp, script)) {
+                return null;
+            }
+            i += Character.charCount(cp);
+        }
+        return label;
     }
 
     public Locale getLocale() {
