@@ -32,8 +32,6 @@ public final class ClipboardHistoryManager
         implements ClipboardManager.OnPrimaryClipChangedListener {
     private static final String TAG = "ClipboardHistory";
     public static final int MAX_ENTRIES = 12;
-    // A clip older than this is not offered as a paste chip (history still keeps it).
-    private static final long CHIP_FRESH_MS = 10 * 60 * 1000L;
     private static final int MAX_LEN = 4000;
     // Don't copy giant images into our sandbox.
     private static final long MAX_IMAGE_BYTES = 16L * 1024 * 1024;
@@ -229,12 +227,14 @@ public final class ClipboardHistoryManager
         save();
     }
 
-    /** The freshest clip to offer as a paste chip, or null (empty/old/already consumed). */
+    /**
+     * The freshest clip to offer as a paste chip, or null (empty/already consumed). No age
+     * limit: the chip is meant to be there whenever the user finally reaches the field.
+     */
     public synchronized Entry suggestionEntry() {
         if (mHistory.isEmpty()) return null;
         final Entry e = mHistory.get(0);
         if (e.timeMs <= mConsumedTime) return null;
-        if (System.currentTimeMillis() - e.timeMs > CHIP_FRESH_MS) return null;
         if (e.isImage() && !new File(e.imagePath).exists()) return null;
         return e;
     }
